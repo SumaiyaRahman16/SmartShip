@@ -31,14 +31,14 @@ const NAV_ITEMS = [
   },
   {
     label: "Public Tracking",
-    href: "/tracking",
+    href: "/track",
     icon: Search,
   },
-  {
-    label: "Profile",
-    href: "/dashboard/profile",
-    icon: User,
-  },
+  // {
+  //   label: "Profile",
+  //   href: "/dashboard/profile",
+  //   icon: User,
+  // },
 ];
 
 export default function Sidebar() {

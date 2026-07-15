@@ -1,3 +1,5 @@
+from uuid import UUID
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, status
 
 from core.dependencies import get_current_user, require_roles
@@ -22,7 +24,7 @@ def create_shipment_event(
 
 @router.get("/{shipment_id}", response_model=list[ShipmentEventOut])
 def get_shipment_timeline(
-    shipment_id: int,
+    shipment_id: UUID,
     db=Depends(get_db),
     _current_user=Depends(get_current_user),
 ):

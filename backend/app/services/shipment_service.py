@@ -16,8 +16,10 @@ Creating a shipment is a multi-step, transactional operation:
 
 import secrets
 import string
+from uuid import UUID
 
 import psycopg2
+# pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 
 from schemas.shipment import ShipmentCreate, ShipmentOut, ShipmentUpdate
@@ -27,6 +29,23 @@ _SHIPMENT_COLUMNS = (
     "receiver_phone, delivery_address, origin_hub_id, destination_hub_id, "
     "expected_delivery_date, created_by, created_at"
 )
+
+_SHIPMENT_COLUMNS_WITH_STATUS = (
+    "s.shipment_id, s.tracking_number, s.sender_name, s.sender_phone, s.receiver_name, "
+    "s.receiver_phone, s.delivery_address, s.origin_hub_id, s.destination_hub_id, "
+    "s.expected_delivery_date, s.created_by, s.created_at, "
+    "st.status_name AS status, ch.hub_name AS current_hub, "
+    "oh.hub_name AS origin_hub, dh.hub_name AS destination_hub"
+)
+
+_SHIPMENT_JOIN_QUERY = """
+    FROM shipments s
+    LEFT JOIN shipment_current_state cs ON cs.shipment_id = s.shipment_id
+    LEFT JOIN shipment_statuses st ON st.status_id = cs.current_status_id
+    LEFT JOIN hubs ch ON ch.hub_id = cs.current_hub_id
+    LEFT JOIN hubs oh ON oh.hub_id = s.origin_hub_id
+    LEFT JOIN hubs dh ON dh.hub_id = s.destination_hub_id
+"""
 
 
 def _generate_tracking_number() -> str:
@@ -40,7 +59,7 @@ def _generate_tracking_number() -> str:
 
 
 def _get_status_id(cur, status_code: str) -> int:
-    cur.execute("SELECT status_id FROM shipment_statuses WHERE status_code = %s", (status_code,))
+    cur.execute("SELECT status_id FROM shipment_statuses WHERE status_name = %s", (status_code,))
     row = cur.fetchone()
     if row is None:
         raise HTTPException(
@@ -115,8 +134,14 @@ def create_shipment(conn, shipment: ShipmentCreate, created_by: int) -> Shipment
                     ),
                 )
 
+                cur.execute(
+                    f"SELECT {_SHIPMENT_COLUMNS_WITH_STATUS} {_SHIPMENT_JOIN_QUERY} WHERE s.shipment_id = %s",
+                    (shipment_row["shipment_id"],),
+                )
+                full_shipment_row = cur.fetchone()
+
             conn.commit()
-            return ShipmentOut(**shipment_row)
+            return ShipmentOut(**full_shipment_row)
 
         except psycopg2.errors.UniqueViolation:
             # tracking_number collision (astronomically unlikely) - retry
@@ -142,9 +167,9 @@ def get_shipments(conn, skip: int = 0, limit: int = 100) -> list[ShipmentOut]:
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT {_SHIPMENT_COLUMNS}
-            FROM shipments
-            ORDER BY shipment_id DESC
+            SELECT {_SHIPMENT_COLUMNS_WITH_STATUS}
+            {_SHIPMENT_JOIN_QUERY}
+            ORDER BY s.shipment_id DESC
             OFFSET %s LIMIT %s
             """,
             (skip, limit),
@@ -153,10 +178,10 @@ def get_shipments(conn, skip: int = 0, limit: int = 100) -> list[ShipmentOut]:
     return [ShipmentOut(**row) for row in rows]
 
 
-def get_shipment_by_id(conn, shipment_id: int) -> ShipmentOut:
+def get_shipment_by_id(conn, shipment_id: UUID) -> ShipmentOut:
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT {_SHIPMENT_COLUMNS} FROM shipments WHERE shipment_id = %s",
+            f"SELECT {_SHIPMENT_COLUMNS_WITH_STATUS} {_SHIPMENT_JOIN_QUERY} WHERE s.shipment_id = %s",
             (shipment_id,),
         )
         row = cur.fetchone()
@@ -172,7 +197,7 @@ def get_shipment_by_id(conn, shipment_id: int) -> ShipmentOut:
 def get_shipment_by_tracking_number(conn, tracking_number: str) -> ShipmentOut:
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT {_SHIPMENT_COLUMNS} FROM shipments WHERE tracking_number = %s",
+            f"SELECT {_SHIPMENT_COLUMNS_WITH_STATUS} {_SHIPMENT_JOIN_QUERY} WHERE s.tracking_number = %s",
             (tracking_number,),
         )
         row = cur.fetchone()
@@ -185,7 +210,7 @@ def get_shipment_by_tracking_number(conn, tracking_number: str) -> ShipmentOut:
     return ShipmentOut(**row)
 
 
-def update_shipment(conn, shipment_id: int, shipment: ShipmentUpdate) -> ShipmentOut:
+def update_shipment(conn, shipment_id: UUID, shipment: ShipmentUpdate) -> ShipmentOut:
     fields = shipment.model_dump(exclude_unset=True)
     if not fields:
         return get_shipment_by_id(conn, shipment_id)
@@ -200,11 +225,14 @@ def update_shipment(conn, shipment_id: int, shipment: ShipmentUpdate) -> Shipmen
                 UPDATE shipments
                 SET {set_clause}
                 WHERE shipment_id = %s
-                RETURNING {_SHIPMENT_COLUMNS}
                 """,
                 values,
             )
-            row = cur.fetchone()
+            if cur.rowcount == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Shipment with id {shipment_id} not found",
+                )
     except psycopg2.errors.ForeignKeyViolation:
         conn.rollback()
         raise HTTPException(
@@ -212,9 +240,4 @@ def update_shipment(conn, shipment_id: int, shipment: ShipmentUpdate) -> Shipmen
             detail="destination_hub_id does not reference an existing hub",
         )
 
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Shipment with id {shipment_id} not found",
-        )
-    return ShipmentOut(**row)
+    return get_shipment_by_id(conn, shipment_id)

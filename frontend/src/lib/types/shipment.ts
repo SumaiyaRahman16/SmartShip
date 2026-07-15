@@ -1,14 +1,14 @@
 export type ShipmentStatus =
-    | "PENDING"
+    | "CREATED"
     | "PICKED_UP"
-    | "IN_TRANSIT"
+    | "ARRIVED_HUB"
+    | "DEPARTED_HUB"
     | "OUT_FOR_DELIVERY"
     | "DELIVERED"
-    | "DELAYED"
-    | "CANCELLED";
+    | "DELIVERY_FAILED";
 
 export interface Shipment {
-    id: string;
+    shipment_id: string;
     tracking_number: string;
     sender_name: string;
     sender_phone: string;
@@ -27,6 +27,7 @@ export interface Shipment {
 export interface ShipmentEvent {
     id: string;
     shipment_id: string;
+    hub_id?: string | null;
     status: ShipmentStatus;
     remarks: string;
     created_at: string;

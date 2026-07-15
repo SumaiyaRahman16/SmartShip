@@ -12,7 +12,9 @@ insert_shipment_event follows the required transaction shape:
     On any failure -> Rollback
 """
 
+from uuid import UUID
 import psycopg2
+# pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 
 from schemas.shipment_event import ShipmentEventCreate, ShipmentEventOut
@@ -21,7 +23,7 @@ _EVENT_COLUMNS = "event_id, shipment_id, hub_id, performed_by, status_id, remark
 
 
 def _get_status_id(cur, status_code: str) -> int:
-    cur.execute("SELECT status_id FROM shipment_statuses WHERE status_code = %s", (status_code,))
+    cur.execute("SELECT status_id FROM shipment_statuses WHERE status_name = %s", (status_code,))
     row = cur.fetchone()
     if row is None:
         raise HTTPException(
@@ -33,13 +35,13 @@ def _get_status_id(cur, status_code: str) -> int:
 
 def _row_to_event_out(row: dict, status_code: str) -> ShipmentEventOut:
     return ShipmentEventOut(
-        event_id=row["event_id"],
+        id=row["event_id"],
         shipment_id=row["shipment_id"],
         hub_id=row["hub_id"],
         performed_by=row["performed_by"],
         status=status_code,
         remarks=row["remarks"],
-        event_time=row["event_time"],
+        created_at=row["event_time"],
     )
 
 
@@ -57,7 +59,25 @@ def insert_shipment_event(conn, event: ShipmentEventCreate, performed_by: int) -
                     detail=f"Shipment with id {event.shipment_id} not found",
                 )
 
-            status_id = _get_status_id(cur, event.status.value)
+            status_id = _get_status_id(cur, event.status)
+
+            # Resolve hub_id
+            hub_id = event.hub_id
+            if not hub_id:
+                cur.execute("SELECT assigned_hub_id FROM users WHERE user_id = %s", (performed_by,))
+                user_row = cur.fetchone()
+                if user_row and user_row["assigned_hub_id"]:
+                    hub_id = user_row["assigned_hub_id"]
+            if not hub_id:
+                cur.execute("SELECT current_hub_id FROM shipment_current_state WHERE shipment_id = %s", (event.shipment_id,))
+                state_row = cur.fetchone()
+                if state_row and state_row["current_hub_id"]:
+                    hub_id = state_row["current_hub_id"]
+            if not hub_id:
+                cur.execute("SELECT origin_hub_id FROM shipments WHERE shipment_id = %s", (event.shipment_id,))
+                ship_row = cur.fetchone()
+                if ship_row:
+                    hub_id = ship_row["origin_hub_id"]
 
             cur.execute(
                 f"""
@@ -65,7 +85,7 @@ def insert_shipment_event(conn, event: ShipmentEventCreate, performed_by: int) -
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING {_EVENT_COLUMNS}
                 """,
-                (event.shipment_id, event.hub_id, performed_by, status_id, event.remarks),
+                (event.shipment_id, hub_id, performed_by, status_id, event.remarks),
             )
             event_row = cur.fetchone()
 
@@ -73,12 +93,12 @@ def insert_shipment_event(conn, event: ShipmentEventCreate, performed_by: int) -
                 cur,
                 shipment_id=event.shipment_id,
                 status_id=status_id,
-                hub_id=event.hub_id,
+                hub_id=hub_id,
                 event_id=event_row["event_id"],
             )
 
         conn.commit()
-        return _row_to_event_out(event_row, event.status.value)
+        return _row_to_event_out(event_row, event.status)
 
     except psycopg2.errors.ForeignKeyViolation:
         conn.rollback()
@@ -113,7 +133,7 @@ def _update_current_state(cur, shipment_id: int, status_id: int, hub_id: int | N
     )
 
 
-def get_shipment_timeline(conn, shipment_id: int) -> list[ShipmentEventOut]:
+def get_shipment_timeline(conn, shipment_id: UUID) -> list[ShipmentEventOut]:
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM shipments WHERE shipment_id = %s", (shipment_id,))
         if cur.fetchone() is None:
@@ -124,12 +144,12 @@ def get_shipment_timeline(conn, shipment_id: int) -> list[ShipmentEventOut]:
 
         cur.execute(
             f"""
-            SELECT e.event_id, e.shipment_id, e.hub_id, e.performed_by,
-                   s.status_code AS status, e.remarks, e.event_time
+            SELECT e.event_id AS id, e.shipment_id, e.hub_id, e.performed_by,
+                   s.status_name AS status, e.remarks, e.event_time AS created_at
             FROM shipment_events e
             JOIN shipment_statuses s ON s.status_id = e.status_id
             WHERE e.shipment_id = %s
-            ORDER BY e.event_time ASC
+            ORDER BY e.event_time DESC
             """,
             (shipment_id,),
         )
@@ -138,12 +158,12 @@ def get_shipment_timeline(conn, shipment_id: int) -> list[ShipmentEventOut]:
     return [ShipmentEventOut(**row) for row in rows]
 
 
-def get_latest_event(conn, shipment_id: int) -> ShipmentEventOut:
+def get_latest_event(conn, shipment_id: UUID) -> ShipmentEventOut:
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT e.event_id, e.shipment_id, e.hub_id, e.performed_by,
-                   s.status_code AS status, e.remarks, e.event_time
+            SELECT e.event_id AS id, e.shipment_id, e.hub_id, e.performed_by,
+                   s.status_name AS status, e.remarks, e.event_time AS created_at
             FROM shipment_events e
             JOIN shipment_statuses s ON s.status_id = e.status_id
             WHERE e.shipment_id = %s

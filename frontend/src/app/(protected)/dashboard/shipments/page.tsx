@@ -173,9 +173,9 @@ export default function ShipmentsListPage() {
                                         filteredShipments.map((shipment) => {
                                             const statusConfig =
                                                 STATUS_CONFIG[shipment.status] ??
-                                                STATUS_CONFIG.PENDING;
+                                                STATUS_CONFIG.CREATED;
                                             return (
-                                                <TableRow key={shipment.id}>
+                                                <TableRow key={shipment.shipment_id}>
                                                     <TableCell className="font-medium">
                                                         {shipment.tracking_number}
                                                     </TableCell>
@@ -195,7 +195,7 @@ export default function ShipmentsListPage() {
                                                             aria-label="View shipment"
                                                             onClick={() =>
                                                                 router.push(
-                                                                    `/dashboard/shipments/${shipment.id}`
+                                                                    `/dashboard/shipments/${shipment.shipment_id}`
                                                                 )
                                                             }
                                                         >

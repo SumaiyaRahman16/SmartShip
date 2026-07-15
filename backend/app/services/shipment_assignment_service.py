@@ -2,12 +2,27 @@
 Assign rider, complete assignment, list assignments, list rider assignments.
 """
 
+from uuid import UUID
 import psycopg2
+# pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 
 from schemas.shipment_assignment import ShipmentAssignmentCreate, ShipmentAssignmentOut
 
-_ASSIGNMENT_COLUMNS = "assignment_id, shipment_id, rider_id, status, assigned_at, completed_at"
+_ASSIGNMENT_SELECT = """
+    SELECT
+        a.assignment_id,
+        a.shipment_id,
+        sh.tracking_number,
+        a.rider_id,
+        u.full_name AS rider_name,
+        a.status,
+        a.assigned_at,
+        a.completed_at
+    FROM shipment_assignments a
+    JOIN shipments sh ON sh.shipment_id = a.shipment_id
+    JOIN users u ON u.user_id = a.rider_id
+"""
 
 
 def assign_rider(conn, assignment: ShipmentAssignmentCreate) -> ShipmentAssignmentOut:
@@ -40,10 +55,24 @@ def assign_rider(conn, assignment: ShipmentAssignmentCreate) -> ShipmentAssignme
 
         try:
             cur.execute(
-                f"""
-                INSERT INTO shipment_assignments (shipment_id, rider_id, status)
-                VALUES (%s, %s, 'ASSIGNED')
-                RETURNING {_ASSIGNMENT_COLUMNS}
+                """
+                WITH inserted AS (
+                    INSERT INTO shipment_assignments (shipment_id, rider_id, status)
+                    VALUES (%s, %s, 'ASSIGNED')
+                    RETURNING assignment_id, shipment_id, rider_id, status, assigned_at, completed_at
+                )
+                SELECT
+                    i.assignment_id,
+                    i.shipment_id,
+                    sh.tracking_number,
+                    i.rider_id,
+                    u.full_name AS rider_name,
+                    i.status,
+                    i.assigned_at,
+                    i.completed_at
+                FROM inserted i
+                JOIN shipments sh ON sh.shipment_id = i.shipment_id
+                JOIN users u ON u.user_id = i.rider_id
                 """,
                 (assignment.shipment_id, assignment.rider_id),
             )
@@ -58,14 +87,28 @@ def assign_rider(conn, assignment: ShipmentAssignmentCreate) -> ShipmentAssignme
     return ShipmentAssignmentOut(**row)
 
 
-def complete_assignment(conn, assignment_id: int) -> ShipmentAssignmentOut:
+def complete_assignment(conn, assignment_id: UUID) -> ShipmentAssignmentOut:
     with conn.cursor() as cur:
         cur.execute(
-            f"""
-            UPDATE shipment_assignments
-            SET status = 'COMPLETED', completed_at = NOW()
-            WHERE assignment_id = %s AND status != 'COMPLETED'
-            RETURNING {_ASSIGNMENT_COLUMNS}
+            """
+            WITH updated AS (
+                UPDATE shipment_assignments
+                SET status = 'COMPLETED', completed_at = NOW()
+                WHERE assignment_id = %s AND status != 'COMPLETED'
+                RETURNING assignment_id, shipment_id, rider_id, status, assigned_at, completed_at
+            )
+            SELECT
+                u_arr.assignment_id,
+                u_arr.shipment_id,
+                sh.tracking_number,
+                u_arr.rider_id,
+                u.full_name AS rider_name,
+                u_arr.status,
+                u_arr.assigned_at,
+                u_arr.completed_at
+            FROM updated u_arr
+            JOIN shipments sh ON sh.shipment_id = u_arr.shipment_id
+            JOIN users u ON u.user_id = u_arr.rider_id
             """,
             (assignment_id,),
         )
@@ -95,9 +138,8 @@ def get_assignments(conn, skip: int = 0, limit: int = 100) -> list[ShipmentAssig
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT {_ASSIGNMENT_COLUMNS}
-            FROM shipment_assignments
-            ORDER BY assignment_id DESC
+            {_ASSIGNMENT_SELECT}
+            ORDER BY a.assignment_id DESC
             OFFSET %s LIMIT %s
             """,
             (skip, limit),
@@ -106,14 +148,13 @@ def get_assignments(conn, skip: int = 0, limit: int = 100) -> list[ShipmentAssig
     return [ShipmentAssignmentOut(**row) for row in rows]
 
 
-def get_rider_assignments(conn, rider_id: int) -> list[ShipmentAssignmentOut]:
+def get_rider_assignments(conn, rider_id: UUID) -> list[ShipmentAssignmentOut]:
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT {_ASSIGNMENT_COLUMNS}
-            FROM shipment_assignments
-            WHERE rider_id = %s
-            ORDER BY assigned_at DESC
+            {_ASSIGNMENT_SELECT}
+            WHERE a.rider_id = %s
+            ORDER BY a.assigned_at DESC
             """,
             (rider_id,),
         )

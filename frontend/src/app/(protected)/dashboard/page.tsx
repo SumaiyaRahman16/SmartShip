@@ -46,6 +46,7 @@ export default function DashboardPage() {
             icon: Truck,
             href: "/dashboard/assignments",
         },
+
     ];
 
     const recentActivity = [

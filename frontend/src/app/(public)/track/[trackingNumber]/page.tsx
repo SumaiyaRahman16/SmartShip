@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 
 import { public_api_call } from "@/actions/public_api_call";
-import type { TrackingDetail } from "@/lib/types/tracking";
 import { STATUS_CONFIG } from "@/lib/constants/shipment-status";
+import type { ShipmentStatus } from "@/lib/types/shipment";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,53 @@ import {
     AlertDescription,
     AlertTitle,
 } from "@/components/ui/alert";
+
+// =========================================================
+// TYPES (kept local to this page — exact response shape from
+// GET /tracking/{tracking_number} isn't confirmed, so both a
+// joined-name shape and a raw-id shape are supported defensively.
+// =========================================================
+
+type TrackingTimelineEvent = {
+    event_id?: string;
+    id?: string;
+    status?: string;
+    status_id?: number;
+    event_time?: string;
+    hub?: string;
+    remarks?: string | null;
+};
+
+type TrackingDetail = {
+    tracking_number: string;
+    status?: string;
+    status_id?: number;
+    current_hub?: string;
+    expected_delivery_date?: string;
+    updated_at?: string;
+    timeline: TrackingTimelineEvent[];
+};
+
+// shipment_statuses is a fixed, small lookup table with no dedicated
+// endpoint — used only as a fallback if the tracking response ever sends
+// status_id instead of a joined status name.
+const STATUS_ID_TO_NAME: Record<number, ShipmentStatus> = {
+    1: "CREATED",
+    2: "PICKED_UP",
+    3: "ARRIVED_HUB",
+    4: "DEPARTED_HUB",
+    5: "OUT_FOR_DELIVERY",
+    6: "DELIVERED",
+    7: "DELIVERY_FAILED",
+};
+
+function resolveStatusName(raw: { status?: string; status_id?: number }): ShipmentStatus {
+    if (raw.status) return raw.status as ShipmentStatus;
+    if (typeof raw.status_id === "number") {
+        return STATUS_ID_TO_NAME[raw.status_id] ?? "CREATED";
+    }
+    return "CREATED";
+}
 
 function formatDate(value?: string) {
     if (!value) return "—";
@@ -60,13 +107,29 @@ export default function TrackingDetailPage() {
                 path: `tracking/${trackingNumber}`,
                 method: "GET",
             });
-            const data: TrackingDetail | null = response?.data ?? null;
-            if (!data) {
+
+            if (!response.success) {
+                // Distinguish "doesn't exist" from a genuine backend error so
+                // real failures don't get silently mislabeled as "not found".
+                const message = response.message ?? "";
+                if (message.toLowerCase().includes("not found")) {
+                    setNotFound(true);
+                } else {
+                    setError(
+                        message || "We couldn't fetch this shipment right now. Please try again in a moment."
+                    );
+                }
+                setDetail(null);
+                return;
+            }
+
+            if (!response.data) {
                 setNotFound(true);
                 setDetail(null);
-            } else {
-                setDetail(data);
+                return;
             }
+
+            setDetail(response.data);
         } catch (err) {
             setError(
                 "We couldn't fetch this shipment right now. Please try again in a moment."
@@ -84,8 +147,9 @@ export default function TrackingDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [trackingNumber]);
 
-    const statusConfig = detail
-        ? STATUS_CONFIG[detail.status] ?? STATUS_CONFIG.PENDING
+    const statusName = detail ? resolveStatusName(detail) : null;
+    const statusConfig = statusName
+        ? STATUS_CONFIG[statusName] ?? STATUS_CONFIG.CREATED
         : null;
 
     return (
@@ -124,10 +188,20 @@ export default function TrackingDetailPage() {
                 )}
 
                 {!isLoading && error && (
-                    <Alert variant="destructive">
-                        <AlertTitle>Something went wrong</AlertTitle>
-                        <AlertDescription>{error}</AlertDescription>
-                    </Alert>
+                    <div className="flex flex-col gap-4">
+                        <Alert variant="destructive">
+                            <AlertTitle>Something went wrong</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                        <Button
+                            variant="outline"
+                            className="w-fit"
+                            onClick={() => router.push("/public/track")}
+                        >
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back to Tracking
+                        </Button>
+                    </div>
                 )}
 
                 {!isLoading && !error && notFound && (
@@ -141,7 +215,7 @@ export default function TrackingDetailPage() {
                             <Button
                                 variant="outline"
                                 className="mt-2"
-                                onClick={() => router.push("/tracking")}
+                                onClick={() => router.push("/public/track")}
                             >
                                 <ArrowLeft className="mr-2 h-4 w-4" />
                                 Back to Tracking
@@ -222,12 +296,13 @@ export default function TrackingDetailPage() {
                             ) : (
                                 <div className="flex flex-col gap-4">
                                     {detail.timeline.map((event, index) => {
+                                        const eventStatusName = resolveStatusName(event);
                                         const eventConfig =
-                                            STATUS_CONFIG[event.status] ?? STATUS_CONFIG.PENDING;
+                                            STATUS_CONFIG[eventStatusName] ?? STATUS_CONFIG.CREATED;
                                         const isLatest = index === 0;
                                         return (
                                             <Card
-                                                key={event.id}
+                                                key={event.event_id ?? event.id ?? index}
                                                 className={
                                                     isLatest ? "border-primary/40 shadow-sm" : ""
                                                 }

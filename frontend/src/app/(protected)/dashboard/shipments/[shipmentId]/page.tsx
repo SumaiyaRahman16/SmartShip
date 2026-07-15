@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -17,8 +17,8 @@ import {
 
 import { private_api_call } from "@/actions/private_api_call";
 
-import type { Shipment, ShipmentEvent } from "@/lib/types/shipment";
 import { STATUS_CONFIG, SHIPMENT_STATUSES } from "@/lib/constants/shipment-status";
+import type { Shipment, ShipmentEvent, ShipmentStatus } from "@/lib/types/shipment";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,13 @@ import {
     AlertTitle,
 } from "@/components/ui/alert";
 
-function formatDate(value?: string) {
+type Hub = {
+    hub_id: string; // UUID
+    hub_name: string;
+    city: string;
+};
+
+function formatDate(value?: string | null) {
     if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
@@ -59,10 +65,12 @@ export default function ShipmentDetailPage() {
 
     const [shipment, setShipment] = useState<Shipment | null>(null);
     const [events, setEvents] = useState<ShipmentEvent[]>([]);
+    const [hubs, setHubs] = useState<Hub[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [newStatus, setNewStatus] = useState<string>("");
+    const [eventHubId, setEventHubId] = useState<string>("");
     const [remarks, setRemarks] = useState("");
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -70,31 +78,31 @@ export default function ShipmentDetailPage() {
         setIsLoading(true);
         setError(null);
         try {
-            const [shipmentRes, eventsRes] = await Promise.all([
-                private_api_call({
-                    path: `/shipments/${shipmentId}`,
-                    method: "GET",
-                }),
-                private_api_call({
-                    path: `/shipment-events/${shipmentId}`,
-                    method: "GET",
-                }),
+            const [shipmentRes, eventsRes, hubsRes] = await Promise.all([
+                private_api_call({ path: `shipments/${shipmentId}`, method: "GET" }),
+                private_api_call({ path: `shipment-events/${shipmentId}`, method: "GET" }),
+                private_api_call({ path: "hubs", method: "GET" }),
             ]);
 
-            const shipmentData: Shipment = shipmentRes?.data ?? shipmentRes;
-            const eventsData: ShipmentEvent[] = Array.isArray(eventsRes)
-                ? eventsRes
-                : eventsRes?.data ?? [];
+            if (!shipmentRes.success) {
+                setError(shipmentRes.message ?? "We couldn't load this shipment.");
+                return;
+            }
+            setShipment(shipmentRes.data ?? null);
 
-            setShipment(shipmentData);
-            setEvents(
-                [...eventsData].sort(
-                    (a, b) =>
-                        new Date(b.created_at).getTime() -
-                        new Date(a.created_at).getTime()
-                )
-            );
-            setNewStatus(shipmentData?.status ?? "");
+            if (eventsRes.success) {
+                const sorted = [...(eventsRes.data ?? [])].sort(
+                    (a: ShipmentEvent, b: ShipmentEvent) =>
+                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                );
+                setEvents(sorted);
+            } else {
+                toast.error(eventsRes.message ?? "Failed to load shipment timeline");
+            }
+
+            if (hubsRes.success) {
+                setHubs(hubsRes.data ?? []);
+            }
         } catch (err) {
             setError("We couldn't load this shipment. Please try again.");
             toast.error("Failed to load shipment");
@@ -110,9 +118,26 @@ export default function ShipmentDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [shipmentId]);
 
+    const hubsById = useMemo(() => {
+        const map = new Map<string, Hub>();
+        hubs.forEach((h) => map.set(h.hub_id, h));
+        return map;
+    }, [hubs]);
+
+    function hubName(hubId?: string | null) {
+        if (!hubId) return "—";
+        return hubsById.get(hubId)?.hub_name ?? hubId;
+    }
+
+
+
     const handleUpdateStatus = async () => {
         if (!newStatus) {
             toast.error("Please select a status");
+            return;
+        }
+        if (!eventHubId) {
+            toast.error("Please select the hub for this update");
             return;
         }
         if (!remarks.trim()) {
@@ -122,21 +147,27 @@ export default function ShipmentDetailPage() {
 
         setIsUpdating(true);
         try {
-            await private_api_call({
-                path: `/shipments/${shipmentId}`,
-                method: "PUT",
-                body: { status: newStatus },
-            });
-
-            await private_api_call({
-                path: "/shipment-events",
+            const res = await private_api_call({
+                path: "shipment-events",
                 method: "POST",
                 body: {
                     shipment_id: shipmentId,
+                    hub_id: eventHubId,
                     status: newStatus,
                     remarks: remarks.trim(),
                 },
             });
+
+            if (!res.success) {
+                const detail = res.data?.detail;
+                const msg = Array.isArray(detail)
+                    ? detail
+                        .map((d: any) => `${d.loc?.[d.loc.length - 1] ?? ""}: ${d.msg}`)
+                        .join(", ")
+                    : res.message ?? "Failed to update status";
+                toast.error(msg);
+                return;
+            }
 
             toast.success("Shipment status updated");
             setRemarks("");
@@ -181,7 +212,7 @@ export default function ShipmentDetailPage() {
         );
     }
 
-    const statusConfig = STATUS_CONFIG[shipment.status] ?? STATUS_CONFIG.PENDING;
+    const statusConfig = STATUS_CONFIG[shipment.status] ?? STATUS_CONFIG.CREATED;
 
     return (
         <div className="flex flex-col gap-6 p-6">
@@ -299,7 +330,7 @@ export default function ShipmentDetailPage() {
                                 <ol className="relative space-y-6 border-l pl-6">
                                     {events.map((event, index) => {
                                         const eventStatusConfig =
-                                            STATUS_CONFIG[event.status] ?? STATUS_CONFIG.PENDING;
+                                            STATUS_CONFIG[event.status] ?? STATUS_CONFIG.CREATED;
                                         return (
                                             <li key={event.id} className="relative">
                                                 <span className="absolute -left-[29px] flex h-5 w-5 items-center justify-center rounded-full bg-background">
@@ -319,6 +350,11 @@ export default function ShipmentDetailPage() {
                                                     <span className="text-xs text-muted-foreground">
                                                         {formatDate(event.created_at)}
                                                     </span>
+                                                    {event.hub_id && (
+                                                        <span className="text-xs text-muted-foreground">
+                                                            · {hubName(event.hub_id)}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {event.remarks && (
                                                     <p className="mt-1 text-sm text-foreground">
@@ -352,6 +388,22 @@ export default function ShipmentDetailPage() {
                                         {SHIPMENT_STATUSES.map((status) => (
                                             <SelectItem key={status} value={status}>
                                                 {STATUS_CONFIG[status].label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <p className="text-sm font-medium">Hub</p>
+                                <Select value={eventHubId} onValueChange={setEventHubId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select hub" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {hubs.map((hub) => (
+                                            <SelectItem key={hub.hub_id} value={hub.hub_id}>
+                                                {hub.hub_name} ({hub.city})
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

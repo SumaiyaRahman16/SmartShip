@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
+
 import {
   LayoutDashboard,
   Package,
@@ -10,6 +11,8 @@ import {
   User,
   Search,
   LogOut,
+  Building2,
+  Truck,
 } from "lucide-react";
 import { deleteCookie } from "@/lib/cookies";
 
@@ -18,16 +21,20 @@ const NAV_ITEMS = [
     label: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
+    roles: ["ADMIN", "WAREHOUSE_OPERATOR", "DELIVERY_RIDER"],
   },
   {
     label: "Shipments",
     href: "/dashboard/shipments",
     icon: Package,
+    roles: ["ADMIN", "WAREHOUSE_OPERATOR", "DELIVERY_RIDER"],
+
   },
   {
     label: "Employees",
     href: "/dashboard/users",
     icon: Users,
+    roles: ["ADMIN"],
   },
   {
     label: "Public Tracking",
@@ -39,9 +46,25 @@ const NAV_ITEMS = [
   //   href: "/dashboard/profile",
   //   icon: User,
   // },
+  {
+    label: "Add Hubs",
+    href: "/dashboard/hubs",
+    icon: Building2,
+    roles: ["ADMIN"],
+  },
+  {
+    label: "Assignments",
+    href: "/dashboard/assignments",
+    icon: Truck,
+    roles: ["ADMIN", "WAREHOUSE_OPERATOR"],
+  }
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  role?: string;
+}
+
+export default function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -76,25 +99,31 @@ export default function Sidebar() {
 
       {/* Nav items */}
       <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
-        {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href;
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-[12px] px-2.5 py-2.5 text-sm font-bold transition-colors overflow-hidden ${isActive
-                ? "bg-brand-primary/50 text-brand-primary-foreground"
-                : "text-gray-500 dark:text-white/60 hover:bg-gray-100 dark:hover:bg-white/[0.05] hover:text-gray-900 dark:hover:text-white"
-                }`}
-            >
-              <Icon className="h-5 w-5 shrink-0" strokeWidth={1.8} />
-              <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
+        {NAV_ITEMS
+          .filter((item) => {
+            if (!item.roles) return true;
+            if (!role) return false;
+            return item.roles.includes(role);
+          })
+          .map((item) => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-[12px] px-2.5 py-2.5 text-sm font-bold transition-colors overflow-hidden ${isActive
+                  ? "bg-brand-primary/50 text-brand-primary-foreground"
+                  : "text-gray-500 dark:text-white/60 hover:bg-gray-100 dark:hover:bg-white/[0.05] hover:text-gray-900 dark:hover:text-white"
+                  }`}
+              >
+                <Icon className="h-5 w-5 shrink-0" strokeWidth={1.8} />
+                <span className="whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
       </nav>
 
       {/* Logout */}

@@ -2,6 +2,7 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict
 
 
@@ -12,56 +13,11 @@ from pydantic import BaseModel, ConfigDict
 class TrackingTimelineEvent(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    event_id: UUID
-
+    id: UUID
     status: str
-
-    hub_id: UUID
-    hub_name: str
-
-    performed_by: UUID
-    performed_by_name: str
-
-    remarks: Optional[str]
-
+    hub: Optional[str] = None
+    remarks: Optional[str] = None
     event_time: datetime
-
-
-# ==========================================================
-# Current Shipment State
-# ==========================================================
-
-class CurrentShipmentState(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    current_status: str
-
-    current_hub_id: UUID
-    current_hub_name: str
-
-    last_updated: datetime
-
-
-# ==========================================================
-# Shipment Tracking Information
-# ==========================================================
-
-class ShipmentTrackingInfo(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    shipment_id: UUID
-    tracking_number: str
-
-    sender_name: str
-
-    receiver_name: str
-
-    delivery_address: str
-
-    origin_hub: str
-    destination_hub: str
-
-    expected_delivery_date: Optional[date]
 
 
 # ==========================================================
@@ -69,8 +25,11 @@ class ShipmentTrackingInfo(BaseModel):
 # ==========================================================
 
 class TrackingResponse(BaseModel):
-    shipment: ShipmentTrackingInfo
+    model_config = ConfigDict(from_attributes=True)
 
-    current_state: CurrentShipmentState
-
+    tracking_number: str
+    status: str
+    current_hub: Optional[str] = None
+    expected_delivery_date: Optional[date] = None
+    updated_at: datetime
     timeline: list[TrackingTimelineEvent]

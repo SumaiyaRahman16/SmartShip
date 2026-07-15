@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -11,8 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CreateShipmentEventRequest(BaseModel):
     shipment_id: UUID
-    hub_id: UUID
-    status_id: int = Field(..., ge=1)
+    hub_id: Optional[UUID] = None
+    status: str
     remarks: Optional[str] = None
 
 
@@ -23,18 +24,13 @@ class CreateShipmentEventRequest(BaseModel):
 class ShipmentEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    event_id: UUID
-
+    id: UUID
     shipment_id: UUID
-    hub_id: UUID
-    performed_by: UUID
-
-    status_id: int
-    status_name: str
-
-    remarks: Optional[str]
-
-    event_time: datetime
+    hub_id: Optional[UUID] = None
+    performed_by: Optional[UUID] = None
+    status: str
+    remarks: Optional[str] = None
+    created_at: datetime
 
 
 # ==========================================================

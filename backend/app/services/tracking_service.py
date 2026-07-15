@@ -6,10 +6,10 @@ No authentication required - used by the public GET /tracking/{tracking_number}
 endpoint.
 """
 
+# pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 
-from schemas.shipment_event import ShipmentEventOut
-from schemas.tracking import TrackingResponse
+from schemas.tracking import TrackingResponse, TrackingTimelineEvent
 
 
 def get_tracking_info(conn, tracking_number: str) -> TrackingResponse:
@@ -19,15 +19,10 @@ def get_tracking_info(conn, tracking_number: str) -> TrackingResponse:
             SELECT
                 sh.shipment_id,
                 sh.tracking_number,
-                sh.sender_name,
-                sh.receiver_name,
-                sh.receiver_phone,
-                sh.delivery_address,
+                st.status_name AS status,
+                h.hub_name AS current_hub,
                 sh.expected_delivery_date,
-                st.status_code AS current_status,
-                cs.current_hub_id,
-                h.hub_name AS current_hub_name,
-                cs.updated_at AS last_updated_at
+                cs.updated_at
             FROM shipments sh
             JOIN shipment_current_state cs ON cs.shipment_id = sh.shipment_id
             JOIN shipment_statuses st ON st.status_id = cs.current_status_id
@@ -46,12 +41,16 @@ def get_tracking_info(conn, tracking_number: str) -> TrackingResponse:
 
         cur.execute(
             """
-            SELECT e.event_id, e.shipment_id, e.hub_id, e.performed_by,
-                   s.status_code AS status, e.remarks, e.event_time
+            SELECT e.event_id AS id,
+                   s.status_name AS status,
+                   h.hub_name AS hub,
+                   e.remarks,
+                   e.event_time
             FROM shipment_events e
             JOIN shipment_statuses s ON s.status_id = e.status_id
+            LEFT JOIN hubs h ON h.hub_id = e.hub_id
             WHERE e.shipment_id = %s
-            ORDER BY e.event_time ASC
+            ORDER BY e.event_time DESC
             """,
             (header["shipment_id"],),
         )
@@ -59,18 +58,9 @@ def get_tracking_info(conn, tracking_number: str) -> TrackingResponse:
 
     return TrackingResponse(
         tracking_number=header["tracking_number"],
-        sender_name=header["sender_name"],
-        receiver_name=header["receiver_name"],
-        receiver_phone=header["receiver_phone"],
-        delivery_address=header["delivery_address"],
-        expected_delivery_date=(
-            header["expected_delivery_date"].isoformat()
-            if header["expected_delivery_date"]
-            else None
-        ),
-        current_status=header["current_status"],
-        current_hub_id=header["current_hub_id"],
-        current_hub_name=header["current_hub_name"],
-        last_updated_at=header["last_updated_at"],
-        timeline=[ShipmentEventOut(**row) for row in timeline_rows],
+        status=header["status"],
+        current_hub=header["current_hub"],
+        expected_delivery_date=header["expected_delivery_date"],
+        updated_at=header["updated_at"],
+        timeline=[TrackingTimelineEvent(**row) for row in timeline_rows],
     )

@@ -1,3 +1,5 @@
+from uuid import UUID
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.dependencies import CurrentUser, get_current_user, require_roles
@@ -30,7 +32,7 @@ def get_assignments(
 
 @router.get("/rider/{rider_id}", response_model=list[ShipmentAssignmentOut])
 def get_rider_assignments(
-    rider_id: int,
+    rider_id: UUID,
     db=Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
@@ -45,7 +47,7 @@ def get_rider_assignments(
 
 @router.put("/{assignment_id}/complete", response_model=ShipmentAssignmentOut)
 def complete_assignment(
-    assignment_id: int,
+    assignment_id: UUID,
     db=Depends(get_db),
     _current_user=Depends(
         require_roles(UserRole.ADMIN, UserRole.WAREHOUSE_OPERATOR, UserRole.DELIVERY_RIDER)

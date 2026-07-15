@@ -2,6 +2,7 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # ==========================================================
 
 class CreateShipmentRequest(BaseModel):
-    tracking_number: str = Field(..., max_length=50)
+    tracking_number: Optional[str] = Field(None, max_length=50)
 
     sender_name: str = Field(..., min_length=2, max_length=100)
     sender_phone: Optional[str] = Field(None, max_length=20)
@@ -70,6 +71,12 @@ class ShipmentResponse(BaseModel):
 
     created_by: UUID
     created_at: datetime
+
+    status: Optional[str] = None
+    current_hub: Optional[str] = None
+    origin_hub: Optional[str] = None
+    destination_hub: Optional[str] = None
+
 
 
 # ==========================================================

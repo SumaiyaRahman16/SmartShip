@@ -11,6 +11,8 @@ import os
 import sys
 from pathlib import Path
 
+# from backend.app.schemas import shipment_notes
+
 # Add the 'app' directory to the python path so that downstream absolute imports (e.g. from db...) work at runtime.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "app"))
 
@@ -19,6 +21,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from db.connection import close_db_pool, init_db_pool, get_connection
+
+
 from db.migration_runner import run_migrations
 from routers import (
     auth,
@@ -28,6 +32,8 @@ from routers import (
     shipments,
     tracking,
     users,
+    shipment_notes,
+    delivery_attempts
 )
 
 
@@ -53,6 +59,8 @@ app.include_router(shipments.router)
 app.include_router(shipment_events.router)
 app.include_router(shipment_assignments.router)
 app.include_router(tracking.router)
+app.include_router(shipment_notes.router)   
+app.include_router(delivery_attempts.router)   
 
 
 @app.get("/", tags=["checking "])

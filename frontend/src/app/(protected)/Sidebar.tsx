@@ -13,6 +13,7 @@ import {
   LogOut,
   Building2,
   Truck,
+  BookOpen,
 } from "lucide-react";
 import { deleteCookie } from "@/lib/cookies";
 
@@ -57,6 +58,18 @@ const NAV_ITEMS = [
     href: "/dashboard/assignments",
     icon: Truck,
     roles: ["ADMIN", "WAREHOUSE_OPERATOR"],
+  },
+  {
+    label: "Notes",
+    href: "/dashboard/shipment_notes",
+    icon: BookOpen,
+    roles: ["WAREHOUSE_OPERATOR"],
+  },
+  {
+    label: "Delivery Attempts",
+    href: "/dashboard/delivery_attempts",
+    icon: Truck,
+    roles: ["DELIVERY_RIDER", "ADMIN", "WAREHOUSE_OPERATOR"],
   }
 ];
 

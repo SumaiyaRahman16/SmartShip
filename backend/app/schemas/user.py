@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 

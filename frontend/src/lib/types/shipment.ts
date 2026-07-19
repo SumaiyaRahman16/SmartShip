@@ -34,6 +34,7 @@ export interface ShipmentEvent {
     created_by?: string;
 }
 
+
 export interface CreateShipmentPayload {
     sender_name: string;
     sender_phone: string;
@@ -48,4 +49,23 @@ export interface CreateShipmentPayload {
 export interface UpdateShipmentStatusPayload {
     status: ShipmentStatus;
     remarks: string;
+}
+
+
+export interface ShipmentNote {
+    note_id: string;
+    shipment_id: string;
+    user_id: string;
+    note: string;
+    created_at: string;
+}
+
+
+export interface CreateShipmentNoteRequest {
+    shipment_id: string;
+    note: string;
+}
+export interface ShipmentNoteListResponse {
+    notes: ShipmentNote[];
+    total: number;
 }
